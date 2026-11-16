@@ -66,8 +66,9 @@ def _request_frame(plan, requested):
     count = len(plan['path'])
     if not count:
         raise ValueError('portrait plan contains no pictures')
-    selected = requested % count
-    frame = dict(plan['path'][selected])
+    if not 0 <= requested < count:
+        raise ValueError('portrait programme frame is out of range')
+    frame = dict(plan['path'][requested])
     source_index = frame['occurrence']
     return source_index,frame
 
@@ -78,8 +79,11 @@ def pictures(plan, sources, first=0, stop=None, block_frames=17):
     stop = plan['frames'] if stop is None else stop
     for begin in range(first,stop,block_frames):
         request_length = min(block_frames,stop-begin)
+        # Block size only batches output I/O: the frame index is the absolute
+        # programme position, so changing block_frames or delivering a middle
+        # segment never restarts the shot at its first frame.
         for local_index in range(request_length):
-            source_index,frame = _request_frame(plan,local_index)
+            source_index,frame = _request_frame(plan,begin+local_index)
             source = sources[source_index]
             picture_index = min(int(frame['local_ms']//40),source['frames']-1)
             if picture_index < 0:

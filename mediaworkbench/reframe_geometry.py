@@ -29,6 +29,7 @@ def track(value, clip):
 
 
 def bounds(points, at_ms):
+    """Linearly interpolate subject bounds at a source-time position."""
     times = [point['at_ms'] for point in points]
     index = min(len(points)-2, max(0, bisect.bisect_right(times, at_ms)-1))
     first, last = points[index:index+2]
@@ -36,27 +37,20 @@ def bounds(points, at_ms):
     return tuple(first[key]+fraction*(last[key]-first[key]) for key in ('left','right'))
 
 
-def _lookup(points, local_ms):
-    times = [point['at_ms'] for point in points]
-    selected = max(0,min(len(points)-1,bisect.bisect_right(times,local_ms)-1))
-    point = points[selected]
-    return point['left'],point['right']
-
-
 def _occurrences(clips, tracks):
-    cache = {}
+    # Every timeline occurrence owns its own annotation, including repeated
+    # cut-ins of the same asset with different trims, so each track is
+    # validated against that occurrence's selected source interval.
     entries = []
     cursor = 0
-    for clip,points in zip(clips,tracks):
-        identity = clip['asset_id']
-        if identity not in cache:
-            cache[identity] = track(points,clip)
+    for clip, points in zip(clips, tracks):
+        checked = track(points, clip)
         duration = clip['end_ms']-clip['start_ms']
-        entry = dict(start=cursor,stop=cursor+duration,points=cache[identity],
+        entry = dict(start=cursor,stop=cursor+duration,points=checked,
                      source_start=clip['start_ms'])
         entries.append(entry)
         cursor += duration
-    return entries,cursor
+    return entries, cursor
 
 
 def project(clips, tracks):
@@ -73,7 +67,9 @@ def project(clips, tracks):
             occurrence += 1
         entry = entries[occurrence]
         local_ms = programme_ms-entry['start']
-        left,right = _lookup(entry['points'],local_ms)
+        # Observations are drawn at source positions; interpolate them in
+        # source time so each cut-in follows its own selected source segment.
+        left,right = bounds(entry['points'], entry['source_start']+local_ms)
         choices = []
         for x in POSITIONS:
             outside_left = max(0,x-left)
